@@ -11,132 +11,152 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class KeycloakRoleClient {
-    private final KeycloakProperties properties;
-    private final KeycloakTokenClient keycloakTokenClient;
     private final WebClient webClient;
+    private final KeycloakProperties keycloakProperties;
+    private final KeycloakTokenClient keycloakTokenClient;
 
     public RoleResponseDto createRole(RoleRequestDto roleDto) {
-        try {
-            String token = keycloakTokenClient.getAccessToken();
-            String rolesUrl = String.format(KeycloakConstants.ROLES_PATH, properties.getRealm());
-            log.debug("Creating role at URL: {}", rolesUrl);
+        String token = keycloakTokenClient.getAccessToken();
+        String url = String.format("%s/admin/realms/%s/roles",
+                keycloakProperties.getBaseUrl(),
+                keycloakProperties.getRealm());
+        
+        log.debug("Creating role at URL: {}", url);
 
-            return webClient.post()
-                    .uri(rolesUrl)
-                    .header(HttpHeaders.AUTHORIZATION, KeycloakConstants.BEARER_PREFIX + token)
-                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .bodyValue(roleDto)
+        try {
+            webClient.post()
+                    .uri(url)
+                    .header("Authorization", KeycloakConstants.BEARER_PREFIX + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(roleDto))
                     .retrieve()
-                    .bodyToMono(RoleResponseDto.class)
+                    .toBodilessEntity()
                     .block();
-        } catch (WebClientResponseException.Forbidden e) {
-            log.error("Permission denied. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Permission denied: User does not have required roles to create roles", e);
-        } catch (WebClientResponseException e) {
-            log.error("Failed to create role. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Failed to create role: " + e.getMessage(), e);
+
+            return RoleResponseDto.builder()
+                    .name(roleDto.getName())
+                    .description(roleDto.getDescription())
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to create role. Error: {}", e.getMessage());
+            throw new KeycloakException("Failed to create role", e);
         }
     }
 
     public List<RoleResponseDto> getAllRoles() {
-        try {
-            String token = keycloakTokenClient.getAccessToken();
-            String rolesUrl = String.format(KeycloakConstants.ROLES_PATH, properties.getRealm());
-            log.debug("Getting all roles from URL: {}", rolesUrl);
+        String token = keycloakTokenClient.getAccessToken();
+        String url = String.format("%s/admin/realms/%s/roles",
+                keycloakProperties.getBaseUrl(),
+                keycloakProperties.getRealm());
+        
+        log.debug("Getting all roles from URL: {}", url);
 
-            return webClient.get()
-                    .uri(rolesUrl)
-                    .header(HttpHeaders.AUTHORIZATION, KeycloakConstants.BEARER_PREFIX + token)
+        try {
+            List<Map<String, Object>> roles = webClient.get()
+                    .uri(url)
+                    .header("Authorization", KeycloakConstants.BEARER_PREFIX + token)
                     .retrieve()
-                    .bodyToFlux(RoleResponseDto.class)
-                    .collectList()
+                    .bodyToMono(List.class)
                     .block();
-        } catch (WebClientResponseException.Forbidden e) {
-            log.error("Permission denied. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Permission denied: User does not have required roles to view roles", e);
-        } catch (WebClientResponseException e) {
-            log.error("Failed to get roles. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Failed to get roles: " + e.getMessage(), e);
+
+            return roles.stream()
+                    .map(role -> RoleResponseDto.builder()
+                            .name((String) role.get("name"))
+                            .description((String) role.get("description"))
+                            .build())
+                    .toList();
+        } catch (Exception e) {
+            log.error("Failed to get roles. Error: {}", e.getMessage());
+            throw new KeycloakException("Failed to get roles", e);
         }
     }
 
     public RoleResponseDto getRoleById(String id) {
-        try {
-            String token = keycloakTokenClient.getAccessToken();
-            String roleUrl = String.format(KeycloakConstants.ROLE_BY_ID_PATH, properties.getRealm(), id);
-            log.debug("Getting role from URL: {}", roleUrl);
+        String token = keycloakTokenClient.getAccessToken();
+        String url = String.format("%s/admin/realms/%s/roles/%s",
+                keycloakProperties.getBaseUrl(),
+                keycloakProperties.getRealm(),
+                id);
+        
+        log.debug("Getting role by ID from URL: {}", url);
 
-            return webClient.get()
-                    .uri(roleUrl)
-                    .header(HttpHeaders.AUTHORIZATION, KeycloakConstants.BEARER_PREFIX + token)
+        try {
+            Map<String, Object> role = webClient.get()
+                    .uri(url)
+                    .header("Authorization", KeycloakConstants.BEARER_PREFIX + token)
                     .retrieve()
-                    .bodyToMono(RoleResponseDto.class)
+                    .bodyToMono(Map.class)
                     .block();
-        } catch (WebClientResponseException.NotFound e) {
-            throw new ResourceNotFoundException("Role", "id", id);
-        } catch (WebClientResponseException.Forbidden e) {
-            log.error("Permission denied. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Permission denied: User does not have required roles to view roles", e);
-        } catch (WebClientResponseException e) {
-            log.error("Failed to get role. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Failed to get role: " + e.getMessage(), e);
+
+            return RoleResponseDto.builder()
+                    .name((String) role.get("name"))
+                    .description((String) role.get("description"))
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to get role by ID. Error: {}", e.getMessage());
+            throw new KeycloakException("Failed to get role by ID", e);
         }
     }
 
     public RoleResponseDto updateRole(String id, RoleRequestDto roleDto) {
-        try {
-            String token = keycloakTokenClient.getAccessToken();
-            String roleUrl = String.format(KeycloakConstants.ROLE_BY_ID_PATH, properties.getRealm(), id);
-            log.debug("Updating role at URL: {}", roleUrl);
+        String token = keycloakTokenClient.getAccessToken();
+        String url = String.format("%s/admin/realms/%s/roles/%s",
+                keycloakProperties.getBaseUrl(),
+                keycloakProperties.getRealm(),
+                id);
+        
+        log.debug("Updating role at URL: {}", url);
 
-            return webClient.put()
-                    .uri(roleUrl)
-                    .header(HttpHeaders.AUTHORIZATION, KeycloakConstants.BEARER_PREFIX + token)
-                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .bodyValue(roleDto)
+        try {
+            webClient.put()
+                    .uri(url)
+                    .header("Authorization", KeycloakConstants.BEARER_PREFIX + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(roleDto))
                     .retrieve()
-                    .bodyToMono(RoleResponseDto.class)
+                    .toBodilessEntity()
                     .block();
-        } catch (WebClientResponseException.NotFound e) {
-            throw new ResourceNotFoundException("Role", "id", id);
-        } catch (WebClientResponseException.Forbidden e) {
-            log.error("Permission denied. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Permission denied: User does not have required roles to update roles", e);
-        } catch (WebClientResponseException e) {
-            log.error("Failed to update role. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Failed to update role: " + e.getMessage(), e);
+
+            return RoleResponseDto.builder()
+                    .name(roleDto.getName())
+                    .description(roleDto.getDescription())
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to update role. Error: {}", e.getMessage());
+            throw new KeycloakException("Failed to update role", e);
         }
     }
 
     public void deleteRole(String id) {
-        try {
-            String token = keycloakTokenClient.getAccessToken();
-            String roleUrl = String.format(KeycloakConstants.ROLE_BY_ID_PATH, properties.getRealm(), id);
-            log.debug("Deleting role at URL: {}", roleUrl);
+        String token = keycloakTokenClient.getAccessToken();
+        String url = String.format("%s/admin/realms/%s/roles/%s",
+                keycloakProperties.getBaseUrl(),
+                keycloakProperties.getRealm(),
+                id);
+        
+        log.debug("Deleting role at URL: {}", url);
 
+        try {
             webClient.delete()
-                    .uri(roleUrl)
-                    .header(HttpHeaders.AUTHORIZATION, KeycloakConstants.BEARER_PREFIX + token)
+                    .uri(url)
+                    .header("Authorization", KeycloakConstants.BEARER_PREFIX + token)
                     .retrieve()
                     .toBodilessEntity()
                     .block();
-        } catch (WebClientResponseException.NotFound e) {
-            throw new ResourceNotFoundException("Role", "id", id);
-        } catch (WebClientResponseException.Forbidden e) {
-            log.error("Permission denied. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Permission denied: User does not have required roles to delete roles", e);
-        } catch (WebClientResponseException e) {
-            log.error("Failed to delete role. Status: {}, Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new KeycloakException("Failed to delete role: " + e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("Failed to delete role. Error: {}", e.getMessage());
+            throw new KeycloakException("Failed to delete role", e);
         }
     }
 } 
